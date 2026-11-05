@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">坐忘道</string>
+    <string name="module_description">按应用设置 SIM、语言、时区、设备标识和系统使用记录。</string>
+</resources>

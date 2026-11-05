@@ -1,0 +1,11 @@
+<resources>
+    <style name="PrivacyTheme.Base" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:colorAccent">@color/accent</item>
+        <item name="android:windowBackground">@color/page</item>
+        <item name="android:statusBarColor">@color/page</item>
+        <item name="android:navigationBarColor">@color/surface</item>
+        <item name="android:windowLightStatusBar">@bool/light_system_bars</item>
+        <item name="android:windowLightNavigationBar">@bool/light_system_bars</item>
+    </style>
+    <style name="PrivacyTheme" parent="PrivacyTheme.Base" />
+</resources>
