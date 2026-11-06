@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">DismissTag</string>
-    <string name="module_description">Configure SIM information, language, time zone, device identifiers and system usage records per app.</string>
+    <string name="module_description">Configure SIM information, language, time zone, virtual location, device identifiers and system usage records per app.</string>
 </resources>

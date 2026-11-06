@@ -1,19 +1,20 @@
 <resources>
-    <color name="page">#EEF3F1</color>
-    <color name="surface">#FFFFFF</color>
-    <color name="text_main">#172D29</color>
-    <color name="text_muted">#516760</color>
-    <color name="outline">#D8E4DE</color>
-    <color name="field">#F3F7F5</color>
-    <color name="accent">#086449</color>
-    <color name="on_accent">#FFFFFF</color>
-    <color name="selected">#DEF2E9</color>
-    <color name="warning_bg">#FFF1DA</color>
-    <color name="warning_text">#754710</color>
-    <color name="hero_top">#113B34</color>
-    <color name="hero_bottom">#0C2928</color>
-    <color name="hero_text">#F4FFF9</color>
-    <color name="hero_muted">#B6D9CD</color>
-    <color name="hero_badge">#A5F0CD</color>
+    <color name="page">#F0E6D6</color>
+    <color name="surface">#FFF8EB</color>
+    <color name="text_main">#2D1F20</color>
+    <color name="text_muted">#684E45</color>
+    <color name="outline">#D7BDA8</color>
+    <color name="field">#F8ECDD</color>
+    <color name="accent">#9B302A</color>
+    <color name="on_accent">#FFF8EB</color>
+    <color name="selected">#F3DCD1</color>
+    <color name="warning_bg">#F8E7CA</color>
+    <color name="warning_text">#704219</color>
+    <color name="hero_top">#3E2023</color>
+    <color name="hero_bottom">#211619</color>
+    <color name="hero_rule">#835249</color>
+    <color name="hero_text">#F8EAD3</color>
+    <color name="hero_muted">#D9BAA9</color>
+    <color name="hero_badge">#F4AD91</color>
     <bool name="light_system_bars">true</bool>
 </resources>

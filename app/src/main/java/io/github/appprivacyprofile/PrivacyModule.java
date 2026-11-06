@@ -5,8 +5,11 @@ import android.app.usage.UsageStatsManager;
 import android.bluetooth.BluetoothAdapter;
 import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.location.Location;
+import android.location.LocationManager;
 import android.net.wifi.WifiInfo;
 import android.os.LocaleList;
+import android.os.Parcel;
 import android.provider.Settings;
 import android.telephony.ServiceState;
 import android.telephony.SubscriptionInfo;
@@ -69,6 +72,9 @@ public final class PrivacyModule extends XposedModule {
         }
         if (profile.maskUsage) {
             maskUsage();
+        }
+        if (profile.maskLocation) {
+            maskLocation(Double.parseDouble(profile.latitude), Double.parseDouble(profile.longitude));
         }
         log(Log.INFO, TAG, "已加载配置 " + packageName);
     }
@@ -251,6 +257,33 @@ public final class PrivacyModule extends XposedModule {
             hook(UsageEvents.class, result(false), "hasNextEvent", "getNextEvent");
             log(Log.INFO, TAG, "使用事件已切换为屏蔽迭代读取");
         }
+    }
+
+    private void maskLocation(double latitude, double longitude) {
+        ResultFilter replaceLocation = (chain, original) -> {
+            if (!(original instanceof Location)) {
+                return original;
+            }
+            Location source = (Location) original;
+            Location fixed = new Location(source.getProvider());
+            fixed.setLatitude(latitude);
+            fixed.setLongitude(longitude);
+            fixed.setTime(source.getTime());
+            fixed.setElapsedRealtimeNanos(source.getElapsedRealtimeNanos());
+            if (source.hasAccuracy()) {
+                fixed.setAccuracy(source.getAccuracy());
+            }
+            return fixed;
+        };
+        // Framework and fused location services deliver Location objects through Parcel.
+        Class<?> creator = Location.CREATOR.getClass();
+        try {
+            Method method = creator.getDeclaredMethod("createFromParcel", Parcel.class);
+            hook(method).intercept(chain -> replaceLocation.filter(chain, chain.proceed()));
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            log(Log.WARN, TAG, "无法挂钩 " + creator.getName() + ".createFromParcel");
+        }
+        hook(LocationManager.class, replaceLocation, "getLastKnownLocation");
     }
 
     private interface ResultFilter {

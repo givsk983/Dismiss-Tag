@@ -1,14 +1,14 @@
 <resources>
-    <color name="page">#111D1B</color>
-    <color name="surface">#1B2A27</color>
-    <color name="text_main">#ECF7F2</color>
-    <color name="text_muted">#ABBBB4</color>
-    <color name="outline">#374C45</color>
-    <color name="field">#152320</color>
-    <color name="accent">#A5F0CD</color>
-    <color name="on_accent">#12362A</color>
-    <color name="selected">#234638</color>
-    <color name="warning_bg">#3E3021</color>
-    <color name="warning_text">#FFE1AE</color>
+    <color name="page">#1B1417</color>
+    <color name="surface">#2A1E21</color>
+    <color name="text_main">#F6E7D6</color>
+    <color name="text_muted">#CDB5A8</color>
+    <color name="outline">#604046</color>
+    <color name="field">#35262A</color>
+    <color name="accent">#F5A08A</color>
+    <color name="on_accent">#3A1B1D</color>
+    <color name="selected">#542B30</color>
+    <color name="warning_bg">#412F25</color>
+    <color name="warning_text">#FAD7A6</color>
     <bool name="light_system_bars">false</bool>
 </resources>

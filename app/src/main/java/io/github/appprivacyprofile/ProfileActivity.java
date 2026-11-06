@@ -13,7 +13,10 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.text.Editable;
 import android.text.InputType;
+import android.text.TextWatcher;
+import android.text.method.DigitsKeyListener;
 import android.view.Gravity;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
@@ -28,6 +31,8 @@ import android.widget.ScrollView;
 import android.widget.SearchView;
 import android.widget.Switch;
 import android.widget.TextView;
+import android.window.OnBackInvokedCallback;
+import android.window.OnBackInvokedDispatcher;
 
 import org.json.JSONObject;
 
@@ -68,7 +73,10 @@ public final class ProfileActivity extends Activity {
     private LinearLayout editor;
     private LinearLayout footer;
     private LinearLayout carrierGroup;
+    private LinearLayout locationFields;
     private Button tiktok;
+    private Button backToApps;
+    private OnBackInvokedCallback editorBack;
     private Button claude;
     private Button other;
     private Button saveButton;
@@ -82,6 +90,10 @@ public final class ProfileActivity extends Activity {
     private Switch maskSim;
     private Switch maskFingerprint;
     private Switch maskUsage;
+    private Switch maskLocation;
+    private Button cityPicker;
+    private EditText latitude;
+    private EditText longitude;
     private ChoiceField carrier;
     private ChoiceField language;
     private ChoiceField timeZone;
@@ -100,6 +112,17 @@ public final class ProfileActivity extends Activity {
 
         LinearLayout page = column();
         page.setBackgroundColor(getColor(R.color.page));
+        backToApps = button("‹  返回应用列表", this::returnToPicker);
+        backToApps.setContentDescription("返回应用列表");
+        styleButton(backToApps, R.color.field, R.color.accent, R.color.outline, 12);
+        backToApps.setVisibility(View.GONE);
+        LinearLayout.LayoutParams backLayout = new LinearLayout.LayoutParams(WRAP, WRAP);
+        backLayout.setMarginStart(dp(18));
+        backLayout.topMargin = dp(6);
+        page.addView(backToApps, backLayout);
+        if (Build.VERSION.SDK_INT >= 33) {
+            editorBack = this::returnToPicker;
+        }
         scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.setClipToPadding(false);
@@ -124,7 +147,9 @@ public final class ProfileActivity extends Activity {
             deviceId = state.getString("device_id", "");
             populate(state.getBoolean("enabled"), state.getBoolean("sim"),
                     state.getString("country", ""), state.getString("language", ""),
-                    state.getString("zone", ""), state.getBoolean("fingerprint"), state.getBoolean("usage"));
+                    state.getString("zone", ""), state.getBoolean("fingerprint"), state.getBoolean("usage"),
+                    state.getBoolean("mask_location"), state.getString("latitude", ""),
+                    state.getString("longitude", ""));
             dirty = state.getBoolean("dirty");
             saved = state.getBoolean("saved");
             showTarget();
@@ -146,25 +171,25 @@ public final class ProfileActivity extends Activity {
         super.onStop();
     }
 
+    @Override
+    public void onBackPressed() {
+        if (editing) {
+            returnToPicker();
+        } else {
+            super.onBackPressed();
+        }
+    }
+
     private void buildHero(LinearLayout content) {
         LinearLayout hero = column();
-        GradientDrawable background = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                new int[]{getColor(R.color.hero_top), getColor(R.color.hero_bottom)});
-        background.setCornerRadius(dp(24));
-        hero.setBackground(background);
-        hero.setPadding(dp(18), dp(14), dp(18), dp(16));
+        hero.setBackgroundResource(R.drawable.bg_hero);
+        hero.setPadding(dp(18), dp(12), dp(18), dp(20));
         add(content, hero, 0);
 
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        ImageView shield = new ImageView(this);
-        shield.setImageResource(R.drawable.ic_privacy);
-        shield.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        row.addView(shield, new LinearLayout.LayoutParams(dp(30), dp(30)));
         TextView brand = text("LSPosed 隐私模块", 13, R.color.hero_badge, true);
-        LinearLayout.LayoutParams brandLayout = new LinearLayout.LayoutParams(0, WRAP, 1);
-        brandLayout.setMarginStart(dp(8));
-        row.addView(brand, brandLayout);
+        row.addView(brand, new LinearLayout.LayoutParams(0, WRAP, 1));
         Button help = button("设置帮助", () -> new AlertDialog.Builder(this)
                 .setTitle("如何让配置生效")
                 .setMessage("1. " + FRAMEWORK_HELP
@@ -172,13 +197,25 @@ public final class ProfileActivity extends Activity {
                         + "\n\n3. 在系统应用信息中强行停止目标应用，再重新打开。")
                 .setPositiveButton("知道了", null)
                 .show());
-        styleButton(help, R.color.hero_top, R.color.hero_badge, 0, 12);
+        styleButton(help, R.color.hero_top, R.color.hero_badge, R.color.hero_rule, 8);
         row.addView(help, new LinearLayout.LayoutParams(WRAP, WRAP));
         add(hero, row, 0);
 
-        add(hero, heading(getString(R.string.app_name), 27, R.color.hero_text), 8);
-        add(hero, text("分别设置每个应用能读取的设备和使用信息。", 14,
-                R.color.hero_muted, false), 6);
+        LinearLayout identity = new LinearLayout(this);
+        identity.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView tile = new ImageView(this);
+        tile.setImageResource(R.drawable.ic_privacy);
+        tile.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        identity.addView(tile, new LinearLayout.LayoutParams(dp(70), dp(70)));
+        LinearLayout copy = column();
+        LinearLayout.LayoutParams copyLayout = new LinearLayout.LayoutParams(0, WRAP, 1);
+        copyLayout.setMarginStart(dp(14));
+        identity.addView(copy, copyLayout);
+        TextView title = heading(getString(R.string.app_name), 30, R.color.hero_text);
+        title.setTypeface(Typeface.create("serif", Typeface.BOLD));
+        add(copy, title, 0);
+        add(copy, text("按应用设置身份、地区和定位", 14, R.color.hero_muted, false), 5);
+        add(hero, identity, 12);
     }
 
     private void buildSelector(LinearLayout content) {
@@ -312,16 +349,7 @@ public final class ProfileActivity extends Activity {
 
         LinearLayout profile = card(editor, 0);
         targetName = heading("", 21, R.color.text_main);
-        LinearLayout header = new LinearLayout(this);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        header.addView(targetName, new LinearLayout.LayoutParams(0, WRAP, 1));
-        Button switchApp = button("更换应用", () -> {
-            getSystemService(InputMethodManager.class).hideSoftInputFromWindow(editor.getWindowToken(), 0);
-            setEditing(false);
-        });
-        styleButton(switchApp, R.color.field, R.color.accent, R.color.outline, 12);
-        header.addView(switchApp, new LinearLayout.LayoutParams(WRAP, WRAP));
-        add(profile, header, 0);
+        add(profile, targetName, 0);
         targetPackage = text("", 13, R.color.text_muted, false);
         targetPackage.setTextIsSelectable(true);
         add(profile, targetPackage, 3);
@@ -354,6 +382,24 @@ public final class ProfileActivity extends Activity {
         TimeZoneNames zoneNames = TimeZoneNames.getInstance(Locale.getDefault());
         timeZone = choice(region, "时区", 12, "跟随系统", ZoneId::getAvailableZoneIds,
                 id -> choiceLabel(zoneNames.getExemplarLocationName(id), id));
+
+        LinearLayout location = card(editor, 10);
+        add(location, heading("虚拟定位", 17, R.color.text_main), 0);
+        maskLocation = toggle(location, "启用虚拟定位", 4);
+        locationFields = column();
+        locationFields.setVisibility(View.GONE);
+        add(location, locationFields, 8);
+        cityPicker = button("选择热门城市", this::chooseCity);
+        styleButton(cityPicker, R.color.field, R.color.accent, R.color.outline, 12);
+        add(locationFields, cityPicker, 0);
+        latitude = coordinateField(locationFields, "纬度（−90 到 90）", "例如 37.7749", 10);
+        longitude = coordinateField(locationFields, "经度（−180 到 180）", "例如 -122.4194", 10);
+        add(locationFields, text("用固定坐标替换目标应用收到的 Android 定位结果。",
+                13, R.color.text_muted, false), 8);
+        maskLocation.setOnCheckedChangeListener((view, checked) -> {
+            locationFields.setVisibility(checked ? View.VISIBLE : View.GONE);
+            markEdited();
+        });
 
         LinearLayout fingerprint = card(editor, 10);
         add(fingerprint, heading("设备与使用隐私", 17, R.color.text_main), 0);
@@ -401,6 +447,9 @@ public final class ProfileActivity extends Activity {
         state.putString("zone", timeZone.value);
         state.putBoolean("fingerprint", maskFingerprint.isChecked());
         state.putBoolean("usage", maskUsage.isChecked());
+        state.putBoolean("mask_location", maskLocation.isChecked());
+        state.putString("latitude", latitude.getText().toString());
+        state.putString("longitude", longitude.getText().toString());
         state.putString("device_id", deviceId);
         state.putBoolean("dirty", dirty);
         state.putBoolean("saved", saved);
@@ -413,7 +462,7 @@ public final class ProfileActivity extends Activity {
     private void chooseOther() {
         LinearLayout form = column();
         form.setPadding(dp(24), dp(10), dp(24), dp(4));
-        EditText input = field(form, "应用包名", "例如 com.example.app");
+        EditText input = field(form, "应用包名", "例如 com.example.app", 0);
         input.setImeOptions(EditorInfo.IME_ACTION_DONE);
         if (loadedPackage != null && !TIKTOK.equals(loadedPackage) && !CLAUDE.equals(loadedPackage)) {
             input.setText(loadedPackage);
@@ -443,6 +492,23 @@ public final class ProfileActivity extends Activity {
             }
             return false;
         });
+    }
+
+    private void chooseCity() {
+        CityPreset[] cities = CityPreset.values();
+        CharSequence[] names = new CharSequence[cities.length];
+        for (int i = 0; i < cities.length; i++) {
+            names[i] = cities[i].label;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("选择热门城市")
+                .setItems(names, (dialog, position) -> {
+                    CityPreset city = cities[position];
+                    latitude.setText(city.latitude);
+                    longitude.setText(city.longitude);
+                })
+                .setNegativeButton("取消", null)
+                .show();
     }
 
     private void select(String name) {
@@ -478,21 +544,23 @@ public final class ProfileActivity extends Activity {
             Profile profile = Profile.read(profileApplication().preferences(loadedPackage));
             deviceId = profile.deviceId;
             populate(profile.enabled, profile.maskSim, profile.carrier.country,
-                    profile.language, profile.timeZone, profile.maskFingerprint, profile.maskUsage);
+                    profile.language, profile.timeZone, profile.maskFingerprint, profile.maskUsage,
+                    profile.maskLocation, profile.latitude, profile.longitude);
             showStatus(profile.enabled ? "此应用的配置已启用" : "此应用的配置已关闭", false);
         } catch (IllegalArgumentException | ClassCastException e) {
-            populate(false, false, "", "", "", false, false);
+            populate(false, false, "", "", "", false, false, false, "", "");
             showStatus("此应用的配置无法读取。请重新选择并保存。", true);
         } catch (RuntimeException e) {
             available = false;
-            populate(false, false, "", "", "", false, false);
+            populate(false, false, "", "", "", false, false, false, "", "");
             showStatus(profileApplication().isConnected() ? "远程配置暂时无法读取，请重新选择应用。"
                     : profileApplication().connection(), true);
         }
     }
 
     private void populate(boolean isEnabled, boolean hideSim, String iso, String locale,
-                          String zone, boolean hideFingerprint, boolean hideUsage) {
+                          String zone, boolean hideFingerprint, boolean hideUsage,
+                          boolean useLocation, String latitudeText, String longitudeText) {
         populating = true;
         enabled.setChecked(isEnabled);
         maskSim.setChecked(hideSim);
@@ -502,6 +570,10 @@ public final class ProfileActivity extends Activity {
         timeZone.setValue(zone);
         maskFingerprint.setChecked(hideFingerprint);
         maskUsage.setChecked(hideUsage);
+        maskLocation.setChecked(useLocation);
+        locationFields.setVisibility(useLocation ? View.VISIBLE : View.GONE);
+        latitude.setText(latitudeText);
+        longitude.setText(longitudeText);
         populating = false;
     }
 
@@ -521,11 +593,26 @@ public final class ProfileActivity extends Activity {
     }
 
     private void setEditing(boolean show) {
+        if (Build.VERSION.SDK_INT >= 33 && editing != show) {
+            OnBackInvokedDispatcher dispatcher = getOnBackInvokedDispatcher();
+            if (show) {
+                dispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, editorBack);
+            } else {
+                dispatcher.unregisterOnBackInvokedCallback(editorBack);
+            }
+        }
         editing = show;
+        backToApps.setVisibility(show ? View.VISIBLE : View.GONE);
         picker.setVisibility(show ? View.GONE : View.VISIBLE);
         editor.setVisibility(show ? View.VISIBLE : View.GONE);
         footer.setVisibility(show ? View.VISIBLE : View.GONE);
         scroll.post(() -> scroll.scrollTo(0, 0));
+    }
+
+    private void returnToPicker() {
+        getSystemService(InputMethodManager.class).hideSoftInputFromWindow(editor.getWindowToken(), 0);
+        editor.clearFocus();
+        setEditing(false);
     }
 
     private void markEdited() {
@@ -543,14 +630,16 @@ public final class ProfileActivity extends Activity {
             }
             Profile profile = new Profile(enabled.isChecked(), maskSim.isChecked(),
                     carrier.value, language.value, timeZone.value,
-                    maskFingerprint.isChecked(), maskUsage.isChecked(), deviceId);
+                    maskFingerprint.isChecked(), maskUsage.isChecked(), deviceId, maskLocation.isChecked(),
+                    latitude.getText().toString(), longitude.getText().toString());
             if (profile.enabled && !profile.applies()) {
                 showStatus("请至少选择一项要隐藏或替换的信息。", true);
                 return;
             }
             if (profile.save(profileApplication().preferences(loadedPackage))) {
                 populate(profile.enabled, profile.maskSim, profile.carrier.country,
-                        profile.language, profile.timeZone, profile.maskFingerprint, profile.maskUsage);
+                        profile.language, profile.timeZone, profile.maskFingerprint, profile.maskUsage,
+                        profile.maskLocation, profile.latitude, profile.longitude);
                 dirty = false;
                 saved = true;
                 showStatus("已保存。请强行停止目标应用，再重新打开。", false);
@@ -603,6 +692,10 @@ public final class ProfileActivity extends Activity {
         timeZone.setEnabled(available);
         maskFingerprint.setEnabled(available);
         maskUsage.setEnabled(available);
+        maskLocation.setEnabled(available);
+        cityPicker.setEnabled(available);
+        latitude.setEnabled(available);
+        longitude.setEnabled(available);
         status.setText(message);
         status.setTextColor(getColor(warn ? R.color.warning_text : R.color.text_muted));
         status.setBackground(warn ? rounded(R.color.warning_bg, 10, 0) : null);
@@ -617,7 +710,7 @@ public final class ProfileActivity extends Activity {
 
     private LinearLayout card(LinearLayout parent, int margin) {
         LinearLayout card = column();
-        card.setBackground(rounded(R.color.surface, 20, R.color.outline));
+        card.setBackground(rounded(R.color.surface, 12, R.color.outline));
         card.setPadding(dp(16), dp(14), dp(16), dp(14));
         add(parent, card, margin);
         return card;
@@ -685,7 +778,7 @@ public final class ProfileActivity extends Activity {
         return view;
     }
 
-    private EditText field(LinearLayout parent, String label, String hint) {
+    private EditText field(LinearLayout parent, String label, String hint, int margin) {
         EditText view = new EditText(this);
         view.setId(View.generateViewId());
         view.setSingleLine(true);
@@ -702,8 +795,26 @@ public final class ProfileActivity extends Activity {
                 field.setBackground(rounded(R.color.field, 12, focused ? R.color.accent : R.color.outline)));
         TextView caption = text(label, 14, R.color.text_main, true);
         caption.setLabelFor(view.getId());
-        add(parent, caption, 0);
+        add(parent, caption, margin);
         add(parent, view, 5);
+        return view;
+    }
+
+    private EditText coordinateField(LinearLayout parent, String label, String hint, int margin) {
+        EditText view = field(parent, label, hint, margin);
+        view.setKeyListener(DigitsKeyListener.getInstance(Locale.US, true, true));
+        view.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence text, int start, int count, int after) {}
+
+            @Override
+            public void onTextChanged(CharSequence text, int start, int before, int count) {
+                markEdited();
+            }
+
+            @Override
+            public void afterTextChanged(Editable text) {}
+        });
         return view;
     }
 
