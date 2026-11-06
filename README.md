@@ -4,7 +4,7 @@ DismissTag 是一个用于管理应用独立配置的 Android LSPosed 模块。�
 
 ## 安装与使用
 
-1. 从 [GitHub Releases](https://github.com/givsk983/Dismiss-Tag/releases/latest) 下载并安装 `DismissTag.apk`。APK 使用调试签名，覆盖安装需要沿用原签名。
+1. 从 [GitHub Releases](https://github.com/givsk983/Dismiss-Tag/releases/latest) 下载并安装带版本号的 APK，例如 `DismissTag-v0.0.2.apk`。APK 使用调试签名，覆盖安装需要沿用原签名。
 2. 在 LSPosed 管理器中启用模块，并将需要配置的应用加入作用域。
 3. 打开 DismissTag（坐忘道），确认框架已连接。选择应用或输入包名，启用并保存配置。
 4. 强行停止并重新打开目标应用，让它读取新配置。
