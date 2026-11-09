@@ -4,10 +4,12 @@ DismissTag 是一个用于管理应用独立配置的 Android LSPosed 模块。�
 
 ## 安装与使用
 
-1. 从 [GitHub Releases](https://github.com/givsk983/Dismiss-Tag/releases/latest) 下载并安装带版本号的 APK，例如 `DismissTag-v0.0.2.apk`。APK 使用调试签名，覆盖安装需要沿用原签名。
+1. 从 [GitHub Releases](https://github.com/givsk983/Dismiss-Tag/releases/latest) 下载并安装带版本号的 APK。APK 使用调试签名，覆盖安装需要沿用原签名。
 2. 在 LSPosed 管理器中启用模块，并将需要配置的应用加入作用域。
 3. 打开 DismissTag（坐忘道），确认框架已连接。选择应用或输入包名，启用并保存配置。
 4. 强行停止并重新打开目标应用，让它读取新配置。
+
+在应用配置页也可以通过「一键应用地区预设」同时设置运营商、语言与地区、时区和位置，并保存当前配置。可选美国、日本、台湾和香港，保存后可以逐项调整。
 
 需要设置位置时，可以从城市列表选取参考坐标，也可以手动调整。位置配置在应用收到 Android 定位结果时生效。各项设置的适用范围取决于应用实际使用的 Android 接口。
 

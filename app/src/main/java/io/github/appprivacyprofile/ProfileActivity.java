@@ -76,6 +76,7 @@ public final class ProfileActivity extends Activity {
     private LinearLayout locationFields;
     private Button tiktok;
     private Button backToApps;
+    private Button regionPicker;
     private OnBackInvokedCallback editorBack;
     private Button claude;
     private Button other;
@@ -355,6 +356,11 @@ public final class ProfileActivity extends Activity {
         add(profile, targetPackage, 3);
         enabled = toggle(profile, "启用此应用的配置", 10);
         enabled.setOnCheckedChangeListener((view, checked) -> markEdited());
+        regionPicker = button("一键应用地区预设", this::chooseRegion);
+        styleButton(regionPicker, R.color.field, R.color.accent, R.color.outline, 12);
+        add(profile, regionPicker, 8);
+        add(profile, text("同时设置运营商、语言、时区和位置，选中后保存当前配置。",
+                13, R.color.text_muted, false), 4);
 
         LinearLayout sim = card(editor, 10);
         add(sim, heading("SIM 与运营商", 17, R.color.text_main), 0);
@@ -492,6 +498,27 @@ public final class ProfileActivity extends Activity {
             }
             return false;
         });
+    }
+
+    private void chooseRegion() {
+        RegionPreset[] regions = RegionPreset.values();
+        CharSequence[] labels = Arrays.stream(regions).map(RegionPreset::label).toArray(CharSequence[]::new);
+        new AlertDialog.Builder(this)
+                .setTitle("选择地区并保存")
+                .setItems(labels, (dialog, position) -> {
+                    if (!available) {
+                        showStatus(profileApplication().connection(), true);
+                        return;
+                    }
+                    RegionPreset region = regions[position];
+                    populate(true, true, region.carrier.country, region.language, region.timeZone,
+                            maskFingerprint.isChecked(), maskUsage.isChecked(), true,
+                            region.city.latitude, region.city.longitude);
+                    markEdited();
+                    save();
+                })
+                .setNegativeButton("取消", null)
+                .show();
     }
 
     private void chooseCity() {
@@ -686,6 +713,7 @@ public final class ProfileActivity extends Activity {
     private void showStatus(String message, boolean warn) {
         warning = warn;
         enabled.setEnabled(available);
+        regionPicker.setEnabled(available);
         maskSim.setEnabled(available);
         carrier.setEnabled(available);
         language.setEnabled(available);
