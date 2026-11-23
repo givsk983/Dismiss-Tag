@@ -1,20 +1,20 @@
 <resources>
-    <color name="page">#F0E6D6</color>
-    <color name="surface">#FFF8EB</color>
-    <color name="text_main">#2D1F20</color>
-    <color name="text_muted">#684E45</color>
-    <color name="outline">#D7BDA8</color>
-    <color name="field">#F8ECDD</color>
-    <color name="accent">#9B302A</color>
-    <color name="on_accent">#FFF8EB</color>
-    <color name="selected">#F3DCD1</color>
+    <color name="page">#E8DDC7</color>
+    <color name="surface">#F8F0DE</color>
+    <color name="text_main">#292520</color>
+    <color name="text_muted">#665B4A</color>
+    <color name="outline">#C5B28F</color>
+    <color name="field">#F0E5CE</color>
+    <color name="accent">#962E25</color>
+    <color name="on_accent">#F8F0DE</color>
+    <color name="selected">#EED7BE</color>
     <color name="warning_bg">#F8E7CA</color>
     <color name="warning_text">#704219</color>
-    <color name="hero_top">#3E2023</color>
-    <color name="hero_bottom">#211619</color>
-    <color name="hero_rule">#835249</color>
+    <color name="hero_top">#302E27</color>
+    <color name="hero_bottom">#151B18</color>
+    <color name="hero_rule">#81704C</color>
     <color name="hero_text">#F8EAD3</color>
     <color name="hero_muted">#D9BAA9</color>
-    <color name="hero_badge">#F4AD91</color>
+    <color name="hero_badge">#DEA86F</color>
     <bool name="light_system_bars">true</bool>
 </resources>

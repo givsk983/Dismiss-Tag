@@ -5,17 +5,24 @@ plugins {
 android {
     namespace 'io.github.appprivacyprofile'
     compileSdk 35
+    ndkVersion '27.0.12077973'
 
     defaultConfig {
         applicationId 'io.github.appprivacyprofile'
         minSdk 26
         targetSdk 34
-        versionCode 7
-        versionName '0.0.4'
+        versionCode 9
+        versionName '0.0.6'
     }
 
     buildFeatures {
         buildConfig true
+    }
+
+    externalNativeBuild {
+        ndkBuild {
+            path 'src/main/cpp/Android.mk'
+        }
     }
 
     compileOptions {

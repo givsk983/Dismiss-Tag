@@ -52,8 +52,8 @@ public final class PrivacyModule extends XposedModule {
 
         Locale locale = profile.language.isEmpty() ? null : Locale.forLanguageTag(profile.language);
         if (profile.maskSim) {
-            maskSimIdentifiers();
-            replaceCarrier(profile.carrier);
+            maskSimIdentifiers(profile.sim);
+            replaceCarrier(profile.carrier, profile.sim);
         }
         if (locale != null) {
             maskLanguage(locale);
@@ -62,7 +62,7 @@ public final class PrivacyModule extends XposedModule {
             maskTimeZone(profile.timeZone);
         }
         if (profile.maskSim || locale != null) {
-            maskResourceConfiguration(profile.maskSim ? profile.carrier : null, locale);
+            maskResourceConfiguration(profile, locale);
         }
         if (profile.maskSim || locale != null || !profile.timeZone.isEmpty()) {
             maskSystemProperties(profile, locale);
@@ -79,23 +79,27 @@ public final class PrivacyModule extends XposedModule {
         log(Log.INFO, TAG, "已加载配置 " + packageName);
     }
 
-    private void maskSimIdentifiers() {
-        ResultFilter hideString = result("");
-        ResultFilter hideNullableString = result(null);
-        hook(TelephonyManager.class, hideNullableString, "getSubscriberId", "getSimSerialNumber",
-                "getLine1Number", "getLine1AlphaTag", "getMsisdn", "getGroupIdLevel1", "getGroupIdLevel2");
-        hook(SubscriptionInfo.class, hideString, "getIccId", "getNumber", "getCardString");
-        hook(SubscriptionManager.class, hideString, "getPhoneNumber");
-        hook(frameworkClass("android.telephony.UiccCardInfo"), hideNullableString, "getIccId", "getEid");
-        hook(frameworkClass("android.telephony.UiccPortInfo"), hideString, "getIccId");
-        hook(frameworkClass("android.telephony.euicc.EuiccManager"), hideNullableString, "getEid");
+    private void maskSimIdentifiers(SimProfile sim) {
+        hook(TelephonyManager.class, result(sim.get("imsi")), "getSubscriberId");
+        hook(TelephonyManager.class, result(sim.get("iccid")), "getSimSerialNumber");
+        hook(TelephonyManager.class, result(sim.get("number")), "getLine1Number", "getMsisdn");
+        hook(TelephonyManager.class, result(null), "getLine1AlphaTag");
+        hook(TelephonyManager.class, result(sim.get("gid1")), "getGroupIdLevel1");
+        hook(TelephonyManager.class, result(sim.get("gid2")), "getGroupIdLevel2");
+        hook(SubscriptionInfo.class, result(sim.get("iccid")), "getIccId", "getCardString");
+        hook(SubscriptionInfo.class, result(sim.get("number")), "getNumber");
+        hook(SubscriptionManager.class, result(sim.get("number")), "getPhoneNumber");
+        hook(frameworkClass("android.telephony.UiccCardInfo"), result(sim.get("iccid")), "getIccId");
+        hook(frameworkClass("android.telephony.UiccPortInfo"), result(sim.get("iccid")), "getIccId");
+        hook(frameworkClass("android.telephony.UiccCardInfo"), result(null), "getEid");
+        hook(frameworkClass("android.telephony.euicc.EuiccManager"), result(null), "getEid");
     }
 
-    private void replaceCarrier(CarrierProfile carrier) {
-        ResultFilter countryCode = replaceText(carrier.country);
-        ResultFilter operator = replaceText(carrier.operator);
-        ResultFilter name = replaceText(carrier.name);
-        ResultFilter carrierId = (chain, original) -> (int) original >= 0 ? carrier.id : original;
+    private void replaceCarrier(CarrierProfile carrier, SimProfile sim) {
+        ResultFilter countryCode = replaceText(sim.country(carrier));
+        ResultFilter operator = replaceText(sim.operator(carrier));
+        ResultFilter name = replaceText(sim.name(carrier));
+        ResultFilter carrierId = (chain, original) -> (int) original >= 0 ? (sim.get("operator").isEmpty() ? carrier.id : -1) : original;
         hook(TelephonyManager.class, countryCode, "getSimCountryIso", "getSimCountryIsoForPhone",
                 "getNetworkCountryIso", "getNetworkCountryIsoForPhone");
         hook(TelephonyManager.class, operator, "getSimOperator", "getSimOperatorNumeric",
@@ -108,10 +112,10 @@ public final class PrivacyModule extends XposedModule {
 
         hook(SubscriptionInfo.class, countryCode, "getCountryIso");
         hook(SubscriptionInfo.class, name, "getCarrierName", "getDisplayName");
-        hook(SubscriptionInfo.class, replaceText(carrier.mcc), "getMccString");
-        hook(SubscriptionInfo.class, replaceText(carrier.mnc), "getMncString");
-        hook(SubscriptionInfo.class, replaceCode(carrier.mcc), "getMcc");
-        hook(SubscriptionInfo.class, replaceCode(carrier.mnc), "getMnc");
+        hook(SubscriptionInfo.class, replaceText(sim.mcc(carrier)), "getMccString");
+        hook(SubscriptionInfo.class, replaceText(sim.mnc(carrier)), "getMncString");
+        hook(SubscriptionInfo.class, replaceCode(sim.mcc(carrier)), "getMcc");
+        hook(SubscriptionInfo.class, replaceCode(sim.mnc(carrier)), "getMnc");
         hook(SubscriptionInfo.class, carrierId, "getCarrierId");
 
         hook(ServiceState.class, operator, "getOperatorNumeric", "getVoiceOperatorNumeric", "getDataOperatorNumeric");
@@ -159,12 +163,27 @@ public final class PrivacyModule extends XposedModule {
         hook(ZoneId.class, result(ZoneId.of(id)), "systemDefault");
         hook(TimeZone.class, (chain, original) -> javaZone.clone(), "getDefault", "getDefaultRef");
         hook(android.icu.util.TimeZone.class, (chain, original) -> icuZone.clone(), "getDefault");
+
+        try {
+            System.loadLibrary("appprivacy_timezone");
+            int result = configureNativeTimeZone(id);
+            int propertyHookCount = result >>> 1;
+            boolean localTimeConfigured = (result & 1) != 0;
+            log(localTimeConfigured && propertyHookCount == 3 ? Log.INFO : Log.WARN, TAG,
+                    "原生时区 " + id + "，本地时间" + (localTimeConfigured ? "已设置" : "设置失败")
+                            + "，已挂钩 " + propertyHookCount + "/3 个属性接口");
+        } catch (LinkageError | RuntimeException e) {
+            log(Log.WARN, TAG, "无法加载原生时区支持 " + e.getClass().getSimpleName());
+        }
     }
 
-    private void maskResourceConfiguration(CarrierProfile carrier, Locale locale) {
+    private static synchronized native int configureNativeTimeZone(String id);
+
+    private void maskResourceConfiguration(Profile profile, Locale locale) {
+        CarrierProfile carrier = profile.maskSim ? profile.carrier : null;
         LocaleList locales = locale == null ? null : new LocaleList(locale);
-        int mcc = carrier == null ? 0 : Integer.parseInt(carrier.mcc);
-        int mnc = carrier == null ? 0 : Integer.parseInt(carrier.mnc);
+        int mcc = carrier == null ? 0 : Integer.parseInt(profile.sim.mcc(carrier));
+        int mnc = carrier == null ? 0 : Integer.parseInt(profile.sim.mnc(carrier));
         hook(Resources.class, (chain, value) -> {
             if (!(value instanceof Configuration)) {
                 return value;
@@ -195,13 +214,13 @@ public final class PrivacyModule extends XposedModule {
             switch ((String) chain.getArg(0)) {
                 case "gsm.sim.operator.iso-country":
                 case "gsm.operator.iso-country":
-                    return profile.maskSim ? replaceSlots((String) original, profile.carrier.country) : original;
+                    return profile.maskSim ? replaceSlots((String) original, profile.sim.country(profile.carrier)) : original;
                 case "gsm.sim.operator.alpha":
                 case "gsm.operator.alpha":
-                    return profile.maskSim ? replaceSlots((String) original, profile.carrier.name) : original;
+                    return profile.maskSim ? replaceSlots((String) original, profile.sim.name(profile.carrier)) : original;
                 case "gsm.sim.operator.numeric":
                 case "gsm.operator.numeric":
-                    return profile.maskSim ? replaceSlots((String) original, profile.carrier.operator) : original;
+                    return profile.maskSim ? replaceSlots((String) original, profile.sim.operator(profile.carrier)) : original;
                 case "persist.sys.locale":
                     return locale != null ? profile.language : original;
                 case "persist.sys.language":

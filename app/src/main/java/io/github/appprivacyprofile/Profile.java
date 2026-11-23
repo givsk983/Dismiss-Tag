@@ -14,6 +14,7 @@ final class Profile {
             Pattern.compile("[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*)+");
     private static final Pattern DECIMAL = Pattern.compile("[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)");
 
+    SimProfile sim = new SimProfile(java.util.Collections.emptyMap());
     final boolean enabled;
     final boolean maskSim;
     final CarrierProfile carrier;
@@ -62,16 +63,22 @@ final class Profile {
     }
 
     static Profile read(SharedPreferences preferences) {
-        return new Profile(preferences.getBoolean("enabled", false),
+        Profile profile = new Profile(preferences.getBoolean("enabled", false),
                 preferences.getBoolean("mask_sim", false), preferences.getString("country", ""),
                 preferences.getString("language", ""), preferences.getString("time_zone", ""),
                 preferences.getBoolean("mask_fingerprint", false), preferences.getBoolean("mask_usage", false),
                 preferences.getString("device_id", ""), preferences.getBoolean("mask_location", false),
                 preferences.getString("latitude", ""), preferences.getString("longitude", ""));
+        profile.sim = SimProfile.read(preferences);
+        if (profile.maskSim) profile.sim.validate(profile.carrier);
+        return profile;
     }
 
     boolean save(SharedPreferences preferences) {
-        return preferences.edit().putBoolean("enabled", enabled).putBoolean("mask_sim", maskSim)
+        if (maskSim) sim.validate(carrier);
+        SharedPreferences.Editor editor = preferences.edit();
+        sim.write(editor);
+        return editor.putBoolean("enabled", enabled).putBoolean("mask_sim", maskSim)
                 .putString("country", carrier.country).putString("language", language)
                 .putString("time_zone", timeZone).putBoolean("mask_fingerprint", maskFingerprint)
                 .putBoolean("mask_usage", maskUsage).putString("device_id", deviceId)

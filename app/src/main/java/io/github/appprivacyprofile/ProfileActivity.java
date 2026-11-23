@@ -95,6 +95,7 @@ public final class ProfileActivity extends Activity {
     private Button cityPicker;
     private EditText latitude;
     private EditText longitude;
+    private final Map<String, EditText> simFields = new java.util.LinkedHashMap<>();
     private ChoiceField carrier;
     private ChoiceField language;
     private ChoiceField timeZone;
@@ -151,6 +152,7 @@ public final class ProfileActivity extends Activity {
                     state.getString("zone", ""), state.getBoolean("fingerprint"), state.getBoolean("usage"),
                     state.getBoolean("mask_location"), state.getString("latitude", ""),
                     state.getString("longitude", ""));
+            for (String key : SimProfile.KEYS) simFields.get(key).setText(state.getString("sim_" + key, ""));
             dirty = state.getBoolean("dirty");
             saved = state.getBoolean("saved");
             showTarget();
@@ -189,7 +191,7 @@ public final class ProfileActivity extends Activity {
 
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        TextView brand = text("LSPosed 隐私模块", 13, R.color.hero_badge, true);
+        TextView brand = text("坐 忘 道  ·  身 份 法 帖", 13, R.color.hero_badge, true);
         row.addView(brand, new LinearLayout.LayoutParams(0, WRAP, 1));
         Button help = button("设置帮助", () -> new AlertDialog.Builder(this)
                 .setTitle("如何让配置生效")
@@ -215,13 +217,20 @@ public final class ProfileActivity extends Activity {
         TextView title = heading(getString(R.string.app_name), 30, R.color.hero_text);
         title.setTypeface(Typeface.create("serif", Typeface.BOLD));
         add(copy, title, 0);
-        add(copy, text("按应用设置身份、地区和定位", 14, R.color.hero_muted, false), 5);
+        add(copy, text("以假修真 · 随应用易形换面", 14, R.color.hero_muted, false), 5);
         add(hero, identity, 12);
+        TextView motto = text("真亦假时假亦真", 19, R.color.hero_text, true);
+        motto.setTypeface(Typeface.create("serif", Typeface.NORMAL));
+        motto.setLetterSpacing(0.18f);
+        add(hero, motto, 18);
+        TextView tiles = text("红 中  /  白 板  /  发 财", 12, R.color.hero_badge, true);
+        tiles.setLetterSpacing(0.12f);
+        add(hero, tiles, 6);
     }
 
     private void buildSelector(LinearLayout content) {
         LinearLayout selector = card(content, 14);
-        add(selector, heading("目标应用", 18, R.color.text_main), 0);
+        add(selector, heading("入局 · 选择应用", 18, R.color.text_main), 0);
         add(selector, text("选择要编辑的应用。", 13, R.color.text_muted, false), 4);
 
         LinearLayout shortcuts = new LinearLayout(this);
@@ -245,7 +254,7 @@ public final class ProfileActivity extends Activity {
         LinearLayout project = card(content, 14);
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        header.addView(heading("关于", 18, R.color.text_main),
+        header.addView(heading("道牒 · 关于", 18, R.color.text_main),
                 new LinearLayout.LayoutParams(0, WRAP, 1));
         TextView version = text("版本 " + BuildConfig.VERSION_NAME, 12, R.color.accent, true);
         version.setBackground(rounded(R.color.selected, 12, 0));
@@ -363,8 +372,8 @@ public final class ProfileActivity extends Activity {
                 13, R.color.text_muted, false), 4);
 
         LinearLayout sim = card(editor, 10);
-        add(sim, heading("SIM 与运营商", 17, R.color.text_main), 0);
-        maskSim = toggle(sim, "隐藏真实 SIM 与运营商", 4);
+        add(sim, heading("壹 · 易名换姓", 17, R.color.text_main), 0);
+        maskSim = toggle(sim, "伪装 SIM 与运营商", 4);
         carrierGroup = column();
         add(sim, carrierGroup, 8);
         carrier = choice(carrierGroup, "显示给应用的运营商", 0, null,
@@ -374,15 +383,38 @@ public final class ProfileActivity extends Activity {
                     return option.region + " · " + option.name + "（" + option.operator + "）";
                 });
         carrier.setValue(CarrierProfile.US.country);
-        add(carrierGroup, text("隐藏手机号和 SIM 标识，替换运营商及国家码，保留蜂窝连接状态。",
-                13, R.color.text_muted, false), 4);
+        add(carrierGroup, text("运营商字段留空时使用上方预设；身份字段留空时隐藏。配置按应用保存，不改变实体 SIM。",
+                13, R.color.text_muted, false), 8);
+        Button details = button("展开 / 收起 SIM 详细身份", () -> {});
+        LinearLayout advanced = column();
+        advanced.setVisibility(View.GONE);
+        details.setOnClickListener(v -> advanced.setVisibility(
+                advanced.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE));
+        styleButton(details, R.color.selected, R.color.accent, R.color.outline, 6);
+        add(carrierGroup, details, 10);
+        add(carrierGroup, advanced, 0);
+        String[] labels = {"运营商名称 / SPN", "运营商代码 / MCC + MNC", "SIM 国家码 / ISO",
+                "用户识别码 / IMSI", "卡片序列号 / ICCID", "手机号码 / MSISDN", "用户组 / GID1", "用户组 / GID2"};
+        String[] hints = {"留空使用预设名称", "5 或 6 位数字，例如 310260", "两位字母，例如 us",
+                "14 或 15 位数字；留空隐藏", "18 至 22 位数字；留空隐藏", "+12025550123；留空隐藏", "十六进制；留空隐藏", "十六进制；留空隐藏"};
+        for (int i = 0; i < SimProfile.KEYS.length; i++) {
+            EditText input = field(advanced, labels[i], hints[i], 10);
+            input.addTextChangedListener(new TextWatcher() {
+                public void beforeTextChanged(CharSequence t, int start, int count, int after) {}
+                public void onTextChanged(CharSequence t, int start, int before, int count) { markEdited(); }
+                public void afterTextChanged(Editable t) {}
+            });
+            simFields.put(SimProfile.KEYS[i], input);
+        }
+        add(advanced, text("IMSI 的 MCC/MNC 前缀需与运营商一致。号码、IMSI 和 ICCID 由你指定；不会自动生成真实号码。系统权限限制仍然适用，双卡使用同一份伪装值。",
+                12, R.color.text_muted, false), 10);
         maskSim.setOnCheckedChangeListener((view, checked) -> {
             carrierGroup.setVisibility(checked ? View.VISIBLE : View.GONE);
             markEdited();
         });
 
         LinearLayout region = card(editor, 10);
-        add(region, heading("语言与时区", 17, R.color.text_main), 0);
+        add(region, heading("贰 · 移星换斗 · 语言与时区", 17, R.color.text_main), 0);
         language = choice(region, "语言与地区", 12, "跟随系统", ProfileActivity::languageTags,
                 tag -> choiceLabel(Locale.forLanguageTag(tag).getDisplayName(), tag));
         TimeZoneNames zoneNames = TimeZoneNames.getInstance(Locale.getDefault());
@@ -390,7 +422,7 @@ public final class ProfileActivity extends Activity {
                 id -> choiceLabel(zoneNames.getExemplarLocationName(id), id));
 
         LinearLayout location = card(editor, 10);
-        add(location, heading("虚拟定位", 17, R.color.text_main), 0);
+        add(location, heading("叁 · 移形换位 · 定位", 17, R.color.text_main), 0);
         maskLocation = toggle(location, "启用虚拟定位", 4);
         locationFields = column();
         locationFields.setVisibility(View.GONE);
@@ -408,7 +440,7 @@ public final class ProfileActivity extends Activity {
         });
 
         LinearLayout fingerprint = card(editor, 10);
-        add(fingerprint, heading("设备与使用隐私", 17, R.color.text_main), 0);
+        add(fingerprint, heading("肆 · 隐去来处 · 设备隐私", 17, R.color.text_main), 0);
         maskFingerprint = toggle(fingerprint, "隔离设备标识", 6);
         add(fingerprint, text("为此应用分配独立的 Android ID，隐藏部分广告和无线网络标识。",
                 13, R.color.text_muted, false), 0);
@@ -448,6 +480,7 @@ public final class ProfileActivity extends Activity {
         state.putBoolean("available", available);
         state.putBoolean("enabled", enabled.isChecked());
         state.putBoolean("sim", maskSim.isChecked());
+        for (String key : SimProfile.KEYS) state.putString("sim_" + key, simFields.get(key).getText().toString());
         state.putString("country", carrier.value);
         state.putString("language", language.value);
         state.putString("zone", timeZone.value);
@@ -573,6 +606,7 @@ public final class ProfileActivity extends Activity {
             populate(profile.enabled, profile.maskSim, profile.carrier.country,
                     profile.language, profile.timeZone, profile.maskFingerprint, profile.maskUsage,
                     profile.maskLocation, profile.latitude, profile.longitude);
+            populateSim(profile.sim);
             showStatus(profile.enabled ? "此应用的配置已启用" : "此应用的配置已关闭", false);
         } catch (IllegalArgumentException | ClassCastException e) {
             populate(false, false, "", "", "", false, false, false, "", "");
@@ -589,6 +623,7 @@ public final class ProfileActivity extends Activity {
                           String zone, boolean hideFingerprint, boolean hideUsage,
                           boolean useLocation, String latitudeText, String longitudeText) {
         populating = true;
+        for (EditText field : simFields.values()) field.setText("");
         enabled.setChecked(isEnabled);
         maskSim.setChecked(hideSim);
         carrierGroup.setVisibility(hideSim ? View.VISIBLE : View.GONE);
@@ -601,6 +636,12 @@ public final class ProfileActivity extends Activity {
         locationFields.setVisibility(useLocation ? View.VISIBLE : View.GONE);
         latitude.setText(latitudeText);
         longitude.setText(longitudeText);
+        populating = false;
+    }
+
+    private void populateSim(SimProfile sim) {
+        populating = true;
+        for (String key : SimProfile.KEYS) simFields.get(key).setText(sim.get(key));
         populating = false;
     }
 
@@ -659,6 +700,10 @@ public final class ProfileActivity extends Activity {
                     carrier.value, language.value, timeZone.value,
                     maskFingerprint.isChecked(), maskUsage.isChecked(), deviceId, maskLocation.isChecked(),
                     latitude.getText().toString(), longitude.getText().toString());
+            Map<String, String> simValues = new HashMap<>();
+            for (String key : SimProfile.KEYS) simValues.put(key, simFields.get(key).getText().toString());
+            profile.sim = new SimProfile(simValues);
+            if (profile.maskSim) profile.sim.validate(profile.carrier);
             if (profile.enabled && !profile.applies()) {
                 showStatus("请至少选择一项要隐藏或替换的信息。", true);
                 return;
@@ -667,6 +712,7 @@ public final class ProfileActivity extends Activity {
                 populate(profile.enabled, profile.maskSim, profile.carrier.country,
                         profile.language, profile.timeZone, profile.maskFingerprint, profile.maskUsage,
                         profile.maskLocation, profile.latitude, profile.longitude);
+                populateSim(profile.sim);
                 dirty = false;
                 saved = true;
                 showStatus("已保存。请强行停止目标应用，再重新打开。", false);
@@ -716,6 +762,7 @@ public final class ProfileActivity extends Activity {
         regionPicker.setEnabled(available);
         maskSim.setEnabled(available);
         carrier.setEnabled(available);
+        for (EditText field : simFields.values()) field.setEnabled(available);
         language.setEnabled(available);
         timeZone.setEnabled(available);
         maskFingerprint.setEnabled(available);
@@ -738,7 +785,7 @@ public final class ProfileActivity extends Activity {
 
     private LinearLayout card(LinearLayout parent, int margin) {
         LinearLayout card = column();
-        card.setBackground(rounded(R.color.surface, 12, R.color.outline));
+        card.setBackground(rounded(R.color.surface, 6, R.color.outline));
         card.setPadding(dp(16), dp(14), dp(16), dp(14));
         add(parent, card, margin);
         return card;
@@ -752,6 +799,7 @@ public final class ProfileActivity extends Activity {
 
     private TextView heading(String title, int size, int color) {
         TextView view = text(title, size, color, true);
+        view.setTypeface(Typeface.create("serif", Typeface.BOLD));
         if (Build.VERSION.SDK_INT >= 28) {
             view.setAccessibilityHeading(true);
         }

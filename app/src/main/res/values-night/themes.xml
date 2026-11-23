@@ -5,6 +5,5 @@
         <item name="android:statusBarColor">@color/page</item>
         <item name="android:navigationBarColor">@color/surface</item>
         <item name="android:windowLightStatusBar">@bool/light_system_bars</item>
-        <item name="android:windowLightNavigationBar">@bool/light_system_bars</item>
     </style>
 </resources>

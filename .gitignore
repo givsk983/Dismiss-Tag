@@ -2,6 +2,7 @@
 .build-cache/
 .gradle/
 .idea/
+**/.cxx/
 **/build/
 local.properties
 *.iml
