@@ -19,7 +19,7 @@ DismissTag 是一个用于管理应用独立配置的 Android LSPosed 模块。�
 
 - Android 8.0 或更高版本，LSPosed Modern API 101+，并启用远程配置支持。
 - 手动检查更新时，应用会连接 GitHub。
-- 从源码构建需要 JDK 17 或以上、Android SDK 35 和 Android NDK 27.0.12077973。Windows 下请从纯 ASCII 路径运行 `gradlew.bat :app:assembleDebug`，输出文件位于 `app/build/outputs/apk/debug/app-debug.apk`。
+- 从源码构建需要 JDK 17 或以上、Android SDK 36 和 Android NDK 27.0.12077973。Windows 下请从纯 ASCII 路径运行 `gradlew.bat :app:assembleDebug`，输出文件位于 `app/build/outputs/apk/debug/app-debug.apk`。
 
 [libxposed Modern API](https://github.com/libxposed/api) · [远程配置服务](https://github.com/libxposed/service)
 
