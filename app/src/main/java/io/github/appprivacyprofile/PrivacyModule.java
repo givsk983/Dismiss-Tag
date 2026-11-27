@@ -8,8 +8,10 @@ import android.content.res.Resources;
 import android.location.Location;
 import android.location.LocationManager;
 import android.net.wifi.WifiInfo;
+import android.os.Build;
 import android.os.LocaleList;
 import android.os.Parcel;
+import android.os.Process;
 import android.provider.Settings;
 import android.telephony.ServiceState;
 import android.telephony.SubscriptionInfo;
@@ -19,17 +21,29 @@ import android.telephony.TelephonyManager;
 import android.util.Log;
 
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.TimeZone;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.github.libxposed.api.XposedModule;
 
 public final class PrivacyModule extends XposedModule {
     private static final String TAG = "AppPrivacyProfile";
+    private String processName = "";
+
+    @Override
+    public void onModuleLoaded(ModuleLoadedParam process) {
+        if (!process.isSystemServer()) {
+            processName = process.getProcessName();
+            Log.i(TAG, "模块已进入进程 " + processName + " pid=" + Process.myPid());
+        }
+    }
 
     @Override
     public void onPackageReady(PackageReadyParam app) {
@@ -43,13 +57,25 @@ public final class PrivacyModule extends XposedModule {
         try {
             profile = Profile.read(getRemotePreferences(Profile.preferencesName(packageName)));
         } catch (RuntimeException e) {
-            log(Log.WARN, TAG, "无法读取配置 " + packageName);
+            Log.w(TAG, "无法读取配置 " + packageName + " " + processName + " " + e.getClass().getSimpleName());
             return;
         }
         if (!profile.applies()) {
+            if (profile.maskLocation) {
+                Log.i(TAG, "定位未启用，应用总开关已关闭 " + packageName);
+            }
             return;
         }
 
+        if (profile.maskLocation) {
+            double latitude = Double.parseDouble(profile.latitude);
+            double longitude = Double.parseDouble(profile.longitude);
+            maskLocation(packageName, latitude, longitude);
+            if ("com.autonavi.minimap".equals(packageName)) {
+                maskAmapLocation(app.getClassLoader(), latitude, longitude);
+                maskAmapGpsOverlay(app.getClassLoader(), latitude, longitude);
+            }
+        }
         Locale locale = profile.language.isEmpty() ? null : Locale.forLanguageTag(profile.language);
         if (profile.maskSim) {
             maskSimIdentifiers(profile.sim);
@@ -72,9 +98,6 @@ public final class PrivacyModule extends XposedModule {
         }
         if (profile.maskUsage) {
             maskUsage();
-        }
-        if (profile.maskLocation) {
-            maskLocation(Double.parseDouble(profile.latitude), Double.parseDouble(profile.longitude));
         }
         log(Log.INFO, TAG, "已加载配置 " + packageName);
     }
@@ -278,12 +301,175 @@ public final class PrivacyModule extends XposedModule {
         }
     }
 
-    private void maskLocation(double latitude, double longitude) {
-        ResultFilter replaceLocation = (chain, original) -> {
-            if (!(original instanceof Location)) {
-                return original;
+    private void maskLocation(String packageName, double latitude, double longitude) {
+        String process = (processName.isEmpty() ? packageName : processName) + " pid=" + Process.myPid();
+        Log.i(TAG, "已读取虚拟定位配置 " + process);
+
+        LocationReplacement cached = new LocationReplacement(process, "缓存定位", latitude, longitude);
+        cached.install(LocationManager.class, "getLastKnownLocation",
+                chain -> cached.replace((Location) chain.proceed()), String.class);
+
+        if (Build.VERSION.SDK_INT >= 30) {
+            LocationReplacement current = new LocationReplacement(process, "单次定位回调", latitude, longitude);
+            current.install(frameworkClass("android.location.LocationManager$GetCurrentLocationTransport"),
+                    "onLocation", chain -> chain.proceed(new Object[]{current.replace((Location) chain.getArg(0))}),
+                    Location.class);
+        }
+
+        if (Build.VERSION.SDK_INT >= 31) {
+            LocationReplacement updates = new LocationReplacement(process, "持续定位回调", latitude, longitude);
+            updates.install(frameworkClass("android.location.LocationManager$LocationListenerTransport"),
+                    "onLocationChanged", chain -> {
+                        @SuppressWarnings("unchecked")
+                        List<Location> locations = (List<Location>) chain.getArg(0);
+                        if (locations == null || locations.isEmpty()) {
+                            updates.reportEmpty();
+                            return chain.proceed();
+                        }
+                        List<Location> replacements = new ArrayList<>(locations.size());
+                        for (Location location : locations) {
+                            replacements.add(updates.replace(location));
+                        }
+                        return chain.proceed(new Object[]{replacements, chain.getArg(1)});
+                    }, List.class, frameworkClass("android.os.IRemoteCallback"));
+        }
+
+        // Keep covering Parcelable deliveries, including providers outside LocationManager.
+        LocationReplacement parcel = new LocationReplacement(process, "Parcel 定位", latitude, longitude);
+        parcel.install(Location.CREATOR.getClass(), "createFromParcel",
+                chain -> parcel.replace((Location) chain.proceed()), Parcel.class);
+    }
+
+    private void maskAmapLocation(ClassLoader loader, double latitude, double longitude) {
+        String prefix = "com.amap.location.sdkh.";
+        Class<?> callbacks = findClass(prefix + "AmapLocationService$NativeLocationCallback", loader);
+        Class<?> location = findClass(prefix + "base.type.location.AmapLocation", loader);
+        Class<?> matched = findClass(prefix + "base.type.location.AmapLocationMatch", loader);
+        if (callbacks == null || location == null) {
+            Log.i(TAG, "高德定位 SDK 回调不可用 " + processName);
+            return;
+        }
+        try {
+            Method valid = location.getMethod("isLocationCorrect", location);
+            Method setLatitude = location.getMethod("setLatitude", double.class);
+            Method setLongitude = location.getMethod("setLongitude", double.class);
+            Method setMapCoordinates = location.getMethod("setCoorCanUseInMap", boolean.class);
+            Method getCode = location.getMethod("getLocCode");
+            Method setCode = location.getMethod("setLocCode", int.class);
+            Method getContent = location.getMethod("getOptContent");
+            Method setContent = location.getMethod("setOptContent", String.class);
+            Field mapLatitude = location.getField("gcjLatitude");
+            Field mapLongitude = location.getField("gcjLongitude");
+            Object empty = location.getConstructor().newInstance();
+            double emptyMapLatitude = mapLatitude.getDouble(empty);
+            double emptyMapLongitude = mapLongitude.getDouble(empty);
+            AmapPosition replacement = (source, copy) -> {
+                if (!Boolean.TRUE.equals(valid.invoke(null, source))) return source;
+                Object fixed = copy.newInstance(source);
+                setCode.invoke(fixed, getCode.invoke(source));
+                setContent.invoke(fixed, getContent.invoke(source));
+                setLatitude.invoke(fixed, latitude);
+                setLongitude.invoke(fixed, longitude);
+                setMapCoordinates.invoke(fixed, false);
+                // Discard the SDK's cached GCJ-02 pair so it offsets the configured WGS-84 point.
+                mapLatitude.setDouble(fixed, emptyMapLatitude);
+                mapLongitude.setDouble(fixed, emptyMapLongitude);
+                return fixed;
+            };
+            installAmapCallback(callbacks, "onBaseLocationChanged", location, replacement);
+            installAmapCallback(callbacks, "onNetworkLocationChanged", location, replacement);
+            if (matched != null) installAmapCallback(callbacks, "onMatchLocationChanged", matched, replacement);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            Log.w(TAG, "高德定位 SDK 类型不兼容 " + processName + " " + e.getClass().getSimpleName());
+        }
+    }
+
+    private void installAmapCallback(Class<?> callbacks, String name, Class<?> position, AmapPosition replacement) {
+        String diagnostic = name + " " + processName + " pid=" + Process.myPid();
+        try {
+            Constructor<?> copy = position.getConstructor(position);
+            Method method = callbacks.getDeclaredMethod(name, position);
+            AtomicBoolean reported = new AtomicBoolean();
+            AtomicBoolean reportedFailure = new AtomicBoolean();
+            hook(method).intercept(chain -> {
+                Object source = chain.getArg(0);
+                if (source == null) return chain.proceed();
+                Object fixed;
+                try {
+                    fixed = replacement.replace(source, copy);
+                } catch (ReflectiveOperationException | RuntimeException e) {
+                    if (reportedFailure.compareAndSet(false, true)) {
+                        Log.w(TAG, "高德定位坐标替换失败 " + diagnostic + " " + e.getClass().getSimpleName());
+                    }
+                    return chain.proceed();
+                }
+                if (fixed == source) return chain.proceed();
+                if (reported.compareAndSet(false, true)) Log.i(TAG, "已替换高德定位坐标 " + diagnostic);
+                return chain.proceed(new Object[]{fixed});
+            });
+            Log.i(TAG, "已挂钩高德定位回调 " + diagnostic);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            Log.w(TAG, "无法挂钩高德定位回调 " + diagnostic + " " + e.getClass().getSimpleName());
+        }
+    }
+
+    private interface AmapPosition {
+        Object replace(Object source, Constructor<?> copy) throws ReflectiveOperationException;
+    }
+
+    private void maskAmapGpsOverlay(ClassLoader loader, double latitude, double longitude) {
+        Class<?> business = findClass("com.autonavi.jni.vmap.business.VMapBusinessManager", loader);
+        Class<?> offset = findClass("com.amap.location.sdkh.base.tools.geo.OffsetUtils", loader);
+        if (business == null || offset == null) return;
+
+        try {
+            Method convert = offset.getMethod("getOffsetLatlng", double.class, double.class);
+            Method update = business.getDeclaredMethod("updateBusinessLocation",
+                    double.class, double.class, float.class, int.class);
+            Method automatic = business.getDeclaredMethod("enableAutomaticGetLocation", boolean.class);
+            AtomicBoolean seeded = new AtomicBoolean();
+            hook(update).intercept(chain -> {
+                double[] coordinates;
+                try {
+                    coordinates = (double[]) convert.invoke(null, latitude, longitude);
+                } catch (ReflectiveOperationException | RuntimeException e) {
+                    Log.w(TAG, "无法转换高德蓝点坐标 " + processName + " " + e.getClass().getSimpleName());
+                    return chain.proceed();
+                }
+                if (coordinates == null || coordinates.length != 2) return chain.proceed();
+                Object result = chain.proceed(new Object[]{coordinates[1], coordinates[0], chain.getArg(2), chain.getArg(3)});
+                if (seeded.compareAndSet(false, true)) Log.i(TAG, "已提交高德蓝点坐标 " + processName);
+                return result;
+            });
+            // The native GPS overlay can read positioning directly after its first explicit update.
+            hook(automatic).intercept(chain -> {
+                if (!seeded.get() || !Boolean.TRUE.equals(chain.getArg(0))) return chain.proceed();
+                Log.i(TAG, "高德蓝点沿用设定坐标 " + processName);
+                return chain.proceed(new Object[]{false});
+            });
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            Log.w(TAG, "无法挂钩高德蓝点 " + processName + " " + e.getClass().getSimpleName());
+        }
+    }
+
+    private final class LocationReplacement {
+        private final String diagnostic;
+        private final double latitude;
+        private final double longitude;
+        private final AtomicBoolean reportedEmpty = new AtomicBoolean();
+        private final AtomicBoolean reportedReplacement = new AtomicBoolean();
+
+        LocationReplacement(String process, String path, double latitude, double longitude) {
+            this.diagnostic = path + " " + process;
+            this.latitude = latitude;
+            this.longitude = longitude;
+        }
+
+        Location replace(Location source) {
+            if (source == null) {
+                reportEmpty();
+                return null;
             }
-            Location source = (Location) original;
             Location fixed = new Location(source.getProvider());
             fixed.setLatitude(latitude);
             fixed.setLongitude(longitude);
@@ -292,17 +478,33 @@ public final class PrivacyModule extends XposedModule {
             if (source.hasAccuracy()) {
                 fixed.setAccuracy(source.getAccuracy());
             }
+            if (Build.VERSION.SDK_INT >= 31) {
+                fixed.setMock(source.isMock());
+            }
+            if (reportedReplacement.compareAndSet(false, true)) {
+                Log.i(TAG, "已替换坐标 " + diagnostic);
+            }
             return fixed;
-        };
-        // Framework and fused location services deliver Location objects through Parcel.
-        Class<?> creator = Location.CREATOR.getClass();
-        try {
-            Method method = creator.getDeclaredMethod("createFromParcel", Parcel.class);
-            hook(method).intercept(chain -> replaceLocation.filter(chain, chain.proceed()));
-        } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
-            log(Log.WARN, TAG, "无法挂钩 " + creator.getName() + ".createFromParcel");
         }
-        hook(LocationManager.class, replaceLocation, "getLastKnownLocation");
+
+        void reportEmpty() {
+            if (reportedEmpty.compareAndSet(false, true)) {
+                Log.i(TAG, "未收到定位结果 " + diagnostic);
+            }
+        }
+
+        void install(Class<?> owner, String name, Hooker hooker, Class<?>... parameters) {
+            if (owner == null) {
+                Log.w(TAG, "定位入口不存在 " + diagnostic);
+                return;
+            }
+            try {
+                hook(owner.getDeclaredMethod(name, parameters)).intercept(hooker);
+                Log.i(TAG, "已挂钩 " + diagnostic);
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+                Log.w(TAG, "无法挂钩 " + diagnostic + " " + e.getClass().getSimpleName());
+            }
+        }
     }
 
     private interface ResultFilter {

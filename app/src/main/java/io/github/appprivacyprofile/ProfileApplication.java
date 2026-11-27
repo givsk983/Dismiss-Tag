@@ -2,6 +2,7 @@ package io.github.appprivacyprofile;
 
 import android.app.Application;
 import android.content.SharedPreferences;
+import android.content.pm.LauncherApps;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.AtomicFile;
@@ -10,6 +11,9 @@ import android.util.Log;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.function.Consumer;
 
 import org.json.JSONObject;
 
@@ -17,6 +21,8 @@ import io.github.libxposed.service.XposedService;
 import io.github.libxposed.service.XposedServiceHelper;
 
 public final class ProfileApplication extends Application {
+    private final ExecutorService catalogWorker = Executors.newSingleThreadExecutor();
+    private final Handler main = new Handler(Looper.getMainLooper());
     private XposedService service;
     private Runnable observer;
     private String connection = "等待 Modern LSPosed 连接（API 101+）";
@@ -24,7 +30,6 @@ public final class ProfileApplication extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
-        Handler main = new Handler(Looper.getMainLooper());
         XposedServiceHelper.registerListener(new XposedServiceHelper.OnServiceListener() {
             @Override
             public void onServiceBind(XposedService bound) {
@@ -76,7 +81,7 @@ public final class ProfileApplication extends Application {
                     continue;
                 }
                 SharedPreferences remote = preferences(packageName);
-                if (remote.contains("enabled")) {
+                if (remote.contains(Profile.KEY_ENABLED)) {
                     continue;
                 }
                 JSONObject legacy = profiles.getJSONObject(packageName);
@@ -113,6 +118,23 @@ public final class ProfileApplication extends Application {
 
     boolean isConnected() {
         return service != null;
+    }
+
+    void loadAppCatalog(Consumer<AppCatalog> callback) {
+        XposedService currentService = service;
+        catalogWorker.execute(() -> {
+            AppCatalog catalog = AppCatalog.load(getPackageManager(), getSystemService(LauncherApps.class),
+                    currentService, savedApps());
+            main.post(() -> callback.accept(catalog));
+        });
+    }
+
+    void rememberConfiguredApp(String packageName) {
+        savedApps().edit().putBoolean(packageName, true).apply();
+    }
+
+    private SharedPreferences savedApps() {
+        return getSharedPreferences("configured_apps", MODE_PRIVATE);
     }
 
     SharedPreferences preferences(String packageName) {

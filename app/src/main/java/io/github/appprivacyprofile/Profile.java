@@ -10,6 +10,7 @@ import java.util.Locale;
 import java.util.regex.Pattern;
 
 final class Profile {
+    static final String KEY_ENABLED = "enabled";
     private static final Pattern PACKAGE_NAME =
             Pattern.compile("[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*)+");
     private static final Pattern DECIMAL = Pattern.compile("[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)");
@@ -63,7 +64,7 @@ final class Profile {
     }
 
     static Profile read(SharedPreferences preferences) {
-        Profile profile = new Profile(preferences.getBoolean("enabled", false),
+        Profile profile = new Profile(preferences.getBoolean(KEY_ENABLED, false),
                 preferences.getBoolean("mask_sim", false), preferences.getString("country", ""),
                 preferences.getString("language", ""), preferences.getString("time_zone", ""),
                 preferences.getBoolean("mask_fingerprint", false), preferences.getBoolean("mask_usage", false),
@@ -78,7 +79,7 @@ final class Profile {
         if (maskSim) sim.validate(carrier);
         SharedPreferences.Editor editor = preferences.edit();
         sim.write(editor);
-        return editor.putBoolean("enabled", enabled).putBoolean("mask_sim", maskSim)
+        return editor.putBoolean(KEY_ENABLED, enabled).putBoolean("mask_sim", maskSim)
                 .putString("country", carrier.country).putString("language", language)
                 .putString("time_zone", timeZone).putBoolean("mask_fingerprint", maskFingerprint)
                 .putBoolean("mask_usage", maskUsage).putString("device_id", deviceId)

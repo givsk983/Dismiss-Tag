@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -15,15 +16,17 @@ import android.os.Bundle;
 import android.provider.Settings;
 import android.text.Editable;
 import android.text.InputType;
+import android.text.TextUtils;
 import android.text.TextWatcher;
 import android.text.method.DigitsKeyListener;
 import android.view.Gravity;
 import android.view.View;
-import android.view.inputmethod.EditorInfo;
+import android.view.ViewGroup;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
@@ -60,9 +63,6 @@ public final class ProfileActivity extends Activity {
     private static final String RELEASE_API =
             "https://api.github.com/repos/givsk983/Dismiss-Tag/releases/latest";
     private static final Pattern RELEASE_VERSION = Pattern.compile("v?([0-9]{1,9})\\.([0-9]{1,9})\\.([0-9]{1,9})");
-    private static final String TIKTOK = "com.zhiliaoapp.musically";
-    private static final String TIKTOK_ALTERNATE = "com.ss.android.ugc.trill";
-    private static final String CLAUDE = "com.anthropic.claude";
     private static final String FRAMEWORK_HELP =
             "请在支持 Modern API 101 或更新版本的 LSPosed 管理器启用模块，勾选目标应用，再重新打开此配置页。";
     private static final int MATCH = LinearLayout.LayoutParams.MATCH_PARENT;
@@ -74,19 +74,20 @@ public final class ProfileActivity extends Activity {
     private LinearLayout footer;
     private LinearLayout carrierGroup;
     private LinearLayout locationFields;
-    private Button tiktok;
+    private Button chooseApp;
+    private LinearLayout configuredApps;
     private Button backToApps;
     private Button regionPicker;
     private OnBackInvokedCallback editorBack;
-    private Button claude;
-    private Button other;
     private Button saveButton;
     private Button appInfo;
     private Button updateButton;
     private TextView targetName;
     private TextView targetPackage;
+    private TextView targetScope;
     private TextView status;
     private TextView frameworkStatus;
+    private TextView appListStatus;
     private Switch enabled;
     private Switch maskSim;
     private Switch maskFingerprint;
@@ -107,6 +108,10 @@ public final class ProfileActivity extends Activity {
     private boolean warning;
     private boolean populating;
     private boolean editing;
+    private boolean resumed;
+    private AppCatalog catalog;
+    private int catalogRequest;
+    private Runnable refreshOpenPicker;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -175,6 +180,19 @@ public final class ProfileActivity extends Activity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        resumed = true;
+        refreshCatalog();
+    }
+
+    @Override
+    protected void onPause() {
+        resumed = false;
+        super.onPause();
+    }
+
+    @Override
     public void onBackPressed() {
         if (editing) {
             returnToPicker();
@@ -231,23 +249,22 @@ public final class ProfileActivity extends Activity {
     private void buildSelector(LinearLayout content) {
         LinearLayout selector = card(content, 14);
         add(selector, heading("入局 · 选择应用", 18, R.color.text_main), 0);
-        add(selector, text("选择要编辑的应用。", 13, R.color.text_muted, false), 4);
-
-        LinearLayout shortcuts = new LinearLayout(this);
-        tiktok = button("TikTok", () -> select(TIKTOK));
-        claude = button("Claude", () -> select(CLAUDE));
-        LinearLayout.LayoutParams first = new LinearLayout.LayoutParams(0, WRAP, 1);
-        first.setMarginEnd(dp(8));
-        shortcuts.addView(tiktok, first);
-        shortcuts.addView(claude, new LinearLayout.LayoutParams(0, WRAP, 1));
-        add(selector, shortcuts, 12);
-
-        other = button("其他应用 · 输入包名", this::chooseOther);
-        add(selector, other, 8);
         frameworkStatus = text("", 13, R.color.text_muted, false);
         frameworkStatus.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-        add(selector, frameworkStatus, 10);
-        updateSelection();
+        add(selector, frameworkStatus, 5);
+        chooseApp = button("从已安装应用选择", this::chooseInstalledApp);
+        chooseApp.setEnabled(false);
+        styleButton(chooseApp, R.color.accent, R.color.on_accent, 0, 12);
+        add(selector, chooseApp, 10);
+        appListStatus = text("", 13, R.color.text_muted, false);
+        appListStatus.setVisibility(View.GONE);
+        add(selector, appListStatus, 6);
+
+        LinearLayout configured = card(content, 10);
+        add(configured, heading("已配置", 18, R.color.text_main), 0);
+        configuredApps = column();
+        add(configured, configuredApps, 6);
+        renderAppCatalog();
     }
 
     private void buildProjectLinks(LinearLayout content) {
@@ -363,6 +380,8 @@ public final class ProfileActivity extends Activity {
         targetPackage = text("", 13, R.color.text_muted, false);
         targetPackage.setTextIsSelectable(true);
         add(profile, targetPackage, 3);
+        targetScope = text("", 13, R.color.text_muted, true);
+        add(profile, targetScope, 4);
         enabled = toggle(profile, "启用此应用的配置", 10);
         enabled.setOnCheckedChangeListener((view, checked) -> markEdited());
         regionPicker = button("一键应用地区预设", this::chooseRegion);
@@ -498,39 +517,162 @@ public final class ProfileActivity extends Activity {
         state.putInt("scroll", scroll.getScrollY());
     }
 
-    private void chooseOther() {
-        LinearLayout form = column();
-        form.setPadding(dp(24), dp(10), dp(24), dp(4));
-        EditText input = field(form, "应用包名", "例如 com.example.app", 0);
-        input.setImeOptions(EditorInfo.IME_ACTION_DONE);
-        if (loadedPackage != null && !TIKTOK.equals(loadedPackage) && !CLAUDE.equals(loadedPackage)) {
-            input.setText(loadedPackage);
-        }
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("选择其他应用")
-                .setView(form)
-                .setNegativeButton("取消", null)
-                .setNeutralButton("TikTok 备用版", (view, which) -> select(TIKTOK_ALTERNATE))
-                .setPositiveButton("打开配置", null)
-                .create();
-        dialog.show();
-        View confirm = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
-        confirm.setOnClickListener(view -> {
-            String name = input.getText().toString().trim();
-            if (!Profile.isTargetPackage(name)) {
-                input.setError("请输入有效的应用包名");
-                return;
+    private void chooseInstalledApp() {
+        LinearLayout content = column();
+        SearchView search = new SearchView(this);
+        search.setIconifiedByDefault(false);
+        search.setQueryHint("搜索应用名称");
+        add(content, search, 0);
+
+        FrameLayout results = new FrameLayout(this);
+        int height = Math.min(dp(420), getResources().getDisplayMetrics().heightPixels / 2);
+        content.addView(results, new LinearLayout.LayoutParams(MATCH, height));
+        ListView list = new ListView(this);
+        results.addView(list, new FrameLayout.LayoutParams(MATCH, MATCH));
+        TextView empty = text("没有匹配的应用", 14, R.color.text_muted, false);
+        empty.setGravity(Gravity.CENTER);
+        results.addView(empty, new FrameLayout.LayoutParams(MATCH, MATCH));
+        list.setEmptyView(empty);
+
+        ArrayAdapter<AppCatalog.Entry> adapter = new ArrayAdapter<AppCatalog.Entry>(this, 0) {
+            @Override
+            public View getView(int position, View recycled, ViewGroup parent) {
+                AppRow row = recycled instanceof AppRow ? (AppRow) recycled : new AppRow();
+                row.bind(getItem(position));
+                return row;
             }
-            dialog.dismiss();
-            select(name);
-        });
-        input.setOnEditorActionListener((view, action, event) -> {
-            if (action == EditorInfo.IME_ACTION_DONE) {
-                confirm.performClick();
+        };
+        list.setAdapter(adapter);
+        Runnable updateResults = () -> {
+            String query = search.getQuery().toString().trim().toLowerCase(Locale.ROOT);
+            adapter.setNotifyOnChange(false);
+            adapter.clear();
+            for (AppCatalog.Entry app : catalog.installed) {
+                if (app.label.toLowerCase(Locale.ROOT).contains(query)
+                        || app.packageName.toLowerCase(Locale.ROOT).contains(query)) {
+                    adapter.add(app);
+                }
+            }
+            adapter.notifyDataSetChanged();
+        };
+        search.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
+            @Override
+            public boolean onQueryTextChange(String query) {
+                updateResults.run();
+                list.setSelection(0);
                 return true;
             }
-            return false;
+
+            @Override
+            public boolean onQueryTextSubmit(String query) {
+                search.clearFocus();
+                return true;
+            }
         });
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("选择应用")
+                .setView(content)
+                .setNegativeButton("取消", null)
+                .create();
+        list.setOnItemClickListener((parent, view, position, id) -> {
+            AppCatalog.Entry app = adapter.getItem(position);
+            dialog.dismiss();
+            select(app.packageName);
+        });
+        dialog.setOnDismissListener(ignored -> refreshOpenPicker = null);
+        refreshOpenPicker = updateResults;
+        updateResults.run();
+        content.setFocusableInTouchMode(true);
+        content.requestFocus();
+        dialog.show();
+    }
+
+    private void refreshCatalog() {
+        int request = ++catalogRequest;
+        profileApplication().loadAppCatalog(result -> {
+            if (request != catalogRequest || isFinishing() || isDestroyed()) return;
+            catalog = result;
+            renderAppCatalog();
+            if (loadedPackage != null) showTarget();
+            if (refreshOpenPicker != null) refreshOpenPicker.run();
+        });
+    }
+
+    private void renderAppCatalog() {
+        configuredApps.removeAllViews();
+        if (catalog == null) {
+            add(configuredApps, text("正在读取应用列表…", 13, R.color.text_muted, false), 0);
+            return;
+        }
+        chooseApp.setEnabled(!catalog.installed.isEmpty());
+        appListStatus.setVisibility(catalog.installedListUnavailable ? View.VISIBLE : View.GONE);
+        appListStatus.setText("系统未提供安装列表，请检查本应用的应用列表访问权限。");
+        if (catalog.installed.isEmpty()) {
+            chooseApp.setText("暂时没有可选择的应用");
+        } else {
+            chooseApp.setText(catalog.installedListUnavailable ? "从已知应用选择" : "从已安装应用选择");
+        }
+        for (AppCatalog.Entry app : catalog.configured) {
+            AppRow row = new AppRow();
+            row.bind(app);
+            row.setBackground(new RippleDrawable(ColorStateList.valueOf(getColor(R.color.selected)),
+                    rounded(R.color.field, 10, R.color.outline), null));
+            row.setFocusable(true);
+            row.setOnClickListener(view -> select(app.packageName));
+            add(configuredApps, row, 6);
+        }
+        if (catalog.configured.isEmpty()) {
+            String message = !profileApplication().isConnected() ? "连接 LSPosed 后可查找以前保存的配置。"
+                    : catalog.configurationScanComplete ? "还没有已保存的应用配置。"
+                    : "部分配置暂时无法读取。";
+            add(configuredApps, text(message, 13, R.color.text_muted, false), 0);
+        }
+    }
+
+    private String scopeLabel(Boolean scoped) {
+        return scoped == null ? "LSPosed 勾选状态未知" : scoped ? "LSPosed 已勾选" : "LSPosed 未勾选";
+    }
+
+    private final class AppRow extends LinearLayout {
+        private final ImageView icon;
+        private final TextView name;
+        private final TextView packageName;
+        private final TextView details;
+
+        AppRow() {
+            super(ProfileActivity.this);
+            setGravity(Gravity.CENTER_VERTICAL);
+            setPadding(dp(12), dp(9), dp(12), dp(9));
+            icon = new ImageView(ProfileActivity.this);
+            icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            addView(icon, new LinearLayout.LayoutParams(dp(36), dp(36)));
+            LinearLayout labels = column();
+            LinearLayout.LayoutParams labelLayout = new LinearLayout.LayoutParams(0, WRAP, 1);
+            labelLayout.setMarginStart(dp(12));
+            addView(labels, labelLayout);
+            name = text("", 15, R.color.text_main, true);
+            packageName = text("", 12, R.color.text_muted, false);
+            packageName.setSingleLine(true);
+            packageName.setEllipsize(TextUtils.TruncateAt.MIDDLE);
+            details = text("", 12, R.color.text_muted, false);
+            add(labels, name, 0);
+            add(labels, packageName, 2);
+            add(labels, details, 3);
+        }
+
+        void bind(AppCatalog.Entry app) {
+            icon.setImageDrawable(app.application == null ? getPackageManager().getDefaultActivityIcon()
+                    : app.application.loadIcon(getPackageManager()));
+            name.setText(app.label);
+            packageName.setText(app.packageName);
+            packageName.setVisibility(app.label.equals(app.packageName) ? View.GONE : View.VISIBLE);
+            Boolean scoped = catalog.inScope(app.packageName);
+            String configuration = app.configured ? (Boolean.FALSE.equals(app.enabled)
+                    ? " · 配置已关闭" : " · 已配置") : "";
+            String installation = app.application == null ? " · 安装状态未确认" : "";
+            details.setText(scopeLabel(scoped) + configuration + installation);
+            details.setTextColor(getColor(Boolean.TRUE.equals(scoped) ? R.color.accent : R.color.text_muted));
+        }
     }
 
     private void chooseRegion() {
@@ -601,13 +743,17 @@ public final class ProfileActivity extends Activity {
 
     private void readProfile() {
         try {
-            Profile profile = Profile.read(profileApplication().preferences(loadedPackage));
+            SharedPreferences preferences = profileApplication().preferences(loadedPackage);
+            Profile profile = Profile.read(preferences);
             deviceId = profile.deviceId;
             populate(profile.enabled, profile.maskSim, profile.carrier.country,
                     profile.language, profile.timeZone, profile.maskFingerprint, profile.maskUsage,
                     profile.maskLocation, profile.latitude, profile.longitude);
             populateSim(profile.sim);
-            showStatus(profile.enabled ? "此应用的配置已启用" : "此应用的配置已关闭", false);
+            String message = preferences.contains(Profile.KEY_ENABLED)
+                    ? (profile.enabled ? "此应用的配置已启用" : "此应用的配置已关闭")
+                    : "此应用尚未保存配置";
+            showStatus(message, false);
         } catch (IllegalArgumentException | ClassCastException e) {
             populate(false, false, "", "", "", false, false, false, "", "");
             showStatus("此应用的配置无法读取。请重新选择并保存。", true);
@@ -646,18 +792,14 @@ public final class ProfileActivity extends Activity {
     }
 
     private void showTarget() {
-        targetName.setText(CLAUDE.equals(loadedPackage) ? "Claude"
-                : TIKTOK.equals(loadedPackage) ? "TikTok"
-                : TIKTOK_ALTERNATE.equals(loadedPackage) ? "TikTok 备用版" : "自定义应用");
+        AppCatalog.Entry app = catalog == null ? null : catalog.byPackage.get(loadedPackage);
+        targetName.setText(app == null ? loadedPackage : app.label);
         targetPackage.setText(loadedPackage);
-        updateSelection();
-    }
-
-    private void updateSelection() {
-        styleSelection(tiktok, TIKTOK.equals(loadedPackage));
-        styleSelection(claude, CLAUDE.equals(loadedPackage));
-        styleSelection(other, loadedPackage != null && !TIKTOK.equals(loadedPackage)
-                && !CLAUDE.equals(loadedPackage));
+        targetPackage.setVisibility(app == null || app.label.equals(loadedPackage) ? View.GONE : View.VISIBLE);
+        Boolean scoped = catalog == null ? null : catalog.inScope(loadedPackage);
+        targetScope.setText(Boolean.FALSE.equals(scoped) ? "LSPosed 未勾选，请在管理器中勾选此应用"
+                : scopeLabel(scoped));
+        targetScope.setTextColor(getColor(Boolean.FALSE.equals(scoped) ? R.color.warning_text : R.color.text_muted));
     }
 
     private void setEditing(boolean show) {
@@ -709,6 +851,8 @@ public final class ProfileActivity extends Activity {
                 return;
             }
             if (profile.save(profileApplication().preferences(loadedPackage))) {
+                profileApplication().rememberConfiguredApp(loadedPackage);
+                refreshCatalog();
                 populate(profile.enabled, profile.maskSim, profile.carrier.country,
                         profile.language, profile.timeZone, profile.maskFingerprint, profile.maskUsage,
                         profile.maskLocation, profile.latitude, profile.longitude);
@@ -743,6 +887,7 @@ public final class ProfileActivity extends Activity {
     private void updateConnection() {
         ProfileApplication app = profileApplication();
         frameworkStatus.setText(app.connection());
+        if (resumed) refreshCatalog();
         if (loadedPackage == null || available == app.isConnected()) {
             return;
         }
@@ -826,13 +971,6 @@ public final class ProfileActivity extends Activity {
         view.setStateListAnimator(null);
         view.setOnClickListener(v -> action.run());
         return view;
-    }
-
-    private void styleSelection(Button view, boolean selected) {
-        view.setSelected(selected);
-        styleButton(view, selected ? R.color.selected : R.color.field,
-                selected ? R.color.accent : R.color.text_main,
-                selected ? R.color.accent : R.color.outline, 12);
     }
 
     private void styleButton(Button view, int fill, int ink, int stroke, int radius) {
