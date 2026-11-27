@@ -68,13 +68,7 @@ public final class PrivacyModule extends XposedModule {
         }
 
         if (profile.maskLocation) {
-            double latitude = Double.parseDouble(profile.latitude);
-            double longitude = Double.parseDouble(profile.longitude);
-            maskLocation(packageName, latitude, longitude);
-            if ("com.autonavi.minimap".equals(packageName)) {
-                maskAmapLocation(app.getClassLoader(), latitude, longitude);
-                maskAmapGpsOverlay(app.getClassLoader(), latitude, longitude);
-            }
+            applyLocation(app, packageName, profile.latitude, profile.longitude);
         }
         Locale locale = profile.language.isEmpty() ? null : Locale.forLanguageTag(profile.language);
         if (profile.maskSim) {
@@ -100,6 +94,18 @@ public final class PrivacyModule extends XposedModule {
             maskUsage();
         }
         log(Log.INFO, TAG, "已加载配置 " + packageName);
+    }
+
+    private void applyLocation(PackageReadyParam app, String packageName, String latitudeText, String longitudeText) {
+        double latitude = Double.parseDouble(latitudeText);
+        double longitude = Double.parseDouble(longitudeText);
+        maskLocation(packageName, latitude, longitude);
+        maskFusedLocation(app.getClassLoader(), packageName, latitude, longitude);
+        maskRawGnss(packageName);
+        if ("com.autonavi.minimap".equals(packageName)) {
+            maskAmapLocation(app.getClassLoader(), latitude, longitude);
+            maskAmapGpsOverlay(app.getClassLoader(), latitude, longitude);
+        }
     }
 
     private void maskSimIdentifiers(SimProfile sim) {
@@ -320,16 +326,9 @@ public final class PrivacyModule extends XposedModule {
             LocationReplacement updates = new LocationReplacement(process, "持续定位回调", latitude, longitude);
             updates.install(frameworkClass("android.location.LocationManager$LocationListenerTransport"),
                     "onLocationChanged", chain -> {
-                        @SuppressWarnings("unchecked")
-                        List<Location> locations = (List<Location>) chain.getArg(0);
-                        if (locations == null || locations.isEmpty()) {
-                            updates.reportEmpty();
-                            return chain.proceed();
-                        }
-                        List<Location> replacements = new ArrayList<>(locations.size());
-                        for (Location location : locations) {
-                            replacements.add(updates.replace(location));
-                        }
+                        List<?> locations = (List<?>) chain.getArg(0);
+                        List<?> replacements = updates.replaceBatch(locations);
+                        if (locations == replacements) return chain.proceed();
                         return chain.proceed(new Object[]{replacements, chain.getArg(1)});
                     }, List.class, frameworkClass("android.os.IRemoteCallback"));
         }
@@ -338,6 +337,35 @@ public final class PrivacyModule extends XposedModule {
         LocationReplacement parcel = new LocationReplacement(process, "Parcel 定位", latitude, longitude);
         parcel.install(Location.CREATOR.getClass(), "createFromParcel",
                 chain -> parcel.replace((Location) chain.proceed()), Parcel.class);
+    }
+
+    private void maskFusedLocation(ClassLoader loader, String packageName, double latitude, double longitude) {
+        Class<?> result = findClass("com.google.android.gms.location.LocationResult", loader);
+        if (result == null) return;
+        String process = (processName.isEmpty() ? packageName : processName) + " pid=" + Process.myPid();
+        LocationReplacement last = new LocationReplacement(process, "融合定位最后位置", latitude, longitude);
+        last.install(result, "getLastLocation", chain -> last.replace((Location) chain.proceed()));
+        LocationReplacement batch = new LocationReplacement(process, "融合定位批量结果", latitude, longitude);
+        batch.install(result, "getLocations", chain -> batch.replaceBatch((List<?>) chain.proceed()));
+    }
+
+    private void maskRawGnss(String packageName) {
+        try {
+            for (Method method : LocationManager.class.getDeclaredMethods()) {
+                if (method.getReturnType() != boolean.class) continue;
+                switch (method.getName()) {
+                    case "addNmeaListener", "registerGnssMeasurementsCallback", "registerGnssNavigationMessageCallback" -> {
+                        try {
+                            hook(method).intercept(chain -> false);
+                        } catch (RuntimeException | LinkageError e) {
+                            Log.w(TAG, "无法屏蔽原始卫星数据 " + packageName + " " + method.getName());
+                        }
+                    }
+                }
+            }
+        } catch (RuntimeException | LinkageError e) {
+            Log.w(TAG, "无法枚举原始卫星数据入口 " + packageName);
+        }
     }
 
     private void maskAmapLocation(ClassLoader loader, double latitude, double longitude) {
@@ -485,6 +513,18 @@ public final class PrivacyModule extends XposedModule {
                 Log.i(TAG, "已替换坐标 " + diagnostic);
             }
             return fixed;
+        }
+
+        List<?> replaceBatch(List<?> locations) {
+            if (locations == null || locations.isEmpty()) {
+                reportEmpty();
+                return locations;
+            }
+            List<Object> replacements = new ArrayList<>(locations.size());
+            for (Object location : locations) {
+                replacements.add(location instanceof Location ? replace((Location) location) : location);
+            }
+            return replacements;
         }
 
         void reportEmpty() {

@@ -451,7 +451,7 @@ public final class ProfileActivity extends Activity {
         add(locationFields, cityPicker, 0);
         latitude = coordinateField(locationFields, "纬度（−90 到 90）", "例如 37.7749", 10);
         longitude = coordinateField(locationFields, "经度（−180 到 180）", "例如 -122.4194", 10);
-        add(locationFields, text("用固定坐标替换目标应用收到的 Android 定位结果。",
+        add(locationFields, text("替换此应用收到的系统定位和受支持的融合定位，屏蔽原始卫星定位数据。",
                 13, R.color.text_muted, false), 8);
         maskLocation.setOnCheckedChangeListener((view, checked) -> {
             locationFields.setVisibility(checked ? View.VISIBLE : View.GONE);
